@@ -1,0 +1,72 @@
+{
+  "fecha": "2026-11-20T14:10:36",
+  "llm": "gemini:gemini-flash-latest",
+  "embeddings": "gemini:gemini-embedding-001",
+  "top_k": 4,
+  "chunk_size": 500,
+  "chunk_overlap": 50,
+  "segundos_totales": 6.25,
+  "todas_ok": true,
+  "resultados": [
+    {
+      "tipo": "EN CONTEXTO",
+      "ok": true,
+      "detalle": "respondió con 1 referencia(s)",
+      "respuesta": {
+        "question": "¿Cuántas veces reintenta Andes Pay el envío de un webhook y durante cuánto tiempo?",
+        "answer": "Andes Pay reintenta el envío de un webhook hasta 8 veces a lo largo de 3 días, utilizando backoff exponencial.",
+        "found_in_context": true,
+        "references": [
+          {
+            "source": "02_api_autenticacion_y_limites.md",
+            "chunk_id": "02_api_autenticacion_y_limites::chunk-02",
+            "section": "4. Códigos de error principales / 5. Webhooks / 5.1 Verificación de firma / 5.2 Reintentos / 6. Versionado",
+            "score": 0.7636,
+            "excerpt": "Documento: Andes Pay — Guía de la API: Autenticación, Límites y Webhooks | Secciones: 4. Códigos de error principales / 5. Webhooks / 5.1 Verificación de firma / 5.2 Reintentos / 6. Versionado  API ke…"
+          }
+        ]
+      }
+    },
+    {
+      "tipo": "EN CONTEXTO",
+      "ok": true,
+      "detalle": "respondió con 1 referencia(s)",
+      "respuesta": {
+        "question": "¿Cuánto cuesta un contracargo y qué pasa si el comercio no presenta documentación?",
+        "answer": "Cada contracargo tiene un costo fijo de gestión de USD 15, el cual se cobra incluso si el comercio gana la disputa. Si el comercio no presenta la documentación en el plazo estipulado, el contracargo se da por perdido automáticamente.",
+        "found_in_context": true,
+        "references": [
+          {
+            "source": "01_politica_reembolsos.md",
+            "chunk_id": "01_politica_reembolsos::chunk-02",
+            "section": "5.1 Proceso / 5.2 Costo / 5.3 Programa de monitoreo / 6. Casos excluidos / 7. Preguntas frecuentes de soporte",
+            "score": 0.7548,
+            "excerpt": "Documento: Andes Pay — Política de Reembolsos y Contracargos | Secciones: 5.1 Proceso / 5.2 Costo / 5.3 Programa de monitoreo / 6. Casos excluidos / 7. Preguntas frecuentes de soporte  con el cliente,…"
+          }
+        ]
+      }
+    },
+    {
+      "tipo": "TRAMPA",
+      "ok": true,
+      "detalle": "respondió 'No lo sé' sin inventar (no alucinó)",
+      "respuesta": {
+        "question": "¿Qué tasa de interés cobra Andes Pay por adelantar las liquidaciones a los comercios?",
+        "answer": "No lo sé. Esa información no está en los documentos disponibles.",
+        "found_in_context": false,
+        "references": []
+      }
+    },
+    {
+      "tipo": "TRAMPA",
+      "ok": true,
+      "detalle": "respondió 'No lo sé' sin inventar (no alucinó)",
+      "respuesta": {
+        "question": "¿Quién ganó el Mundial de fútbol 2022?",
+        "answer": "No lo sé. Esa información no está en los documentos disponibles.",
+        "found_in_context": false,
+        "references": []
+      }
+    }
+  ]
+}
