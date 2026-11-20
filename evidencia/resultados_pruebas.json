@@ -1,11 +1,11 @@
 {
-  "fecha": "2026-11-20T14:10:36",
+  "fecha": "2026-11-20T14:12:15",
   "llm": "gemini:gemini-flash-latest",
   "embeddings": "gemini:gemini-embedding-001",
   "top_k": 4,
   "chunk_size": 500,
   "chunk_overlap": 50,
-  "segundos_totales": 6.25,
+  "segundos_totales": 6.7,
   "todas_ok": true,
   "resultados": [
     {
@@ -14,7 +14,7 @@
       "detalle": "respondió con 1 referencia(s)",
       "respuesta": {
         "question": "¿Cuántas veces reintenta Andes Pay el envío de un webhook y durante cuánto tiempo?",
-        "answer": "Andes Pay reintenta el envío de un webhook hasta 8 veces a lo largo de 3 días, utilizando backoff exponencial.",
+        "answer": "Andes Pay reintenta el envío del webhook hasta 8 veces a lo largo de 3 días, utilizando backoff exponencial.",
         "found_in_context": true,
         "references": [
           {
@@ -33,7 +33,7 @@
       "detalle": "respondió con 1 referencia(s)",
       "respuesta": {
         "question": "¿Cuánto cuesta un contracargo y qué pasa si el comercio no presenta documentación?",
-        "answer": "Cada contracargo tiene un costo fijo de gestión de USD 15, el cual se cobra incluso si el comercio gana la disputa. Si el comercio no presenta la documentación en el plazo estipulado, el contracargo se da por perdido automáticamente.",
+        "answer": "Cada contracargo tiene un costo fijo de gestión de USD 15, el cual se cobra incluso si el comercio gana la disputa. Si el comercio no presenta la documentación dentro del plazo, el contracargo se da por perdido automáticamente.",
         "found_in_context": true,
         "references": [
           {
