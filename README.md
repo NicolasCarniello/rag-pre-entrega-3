@@ -1,6 +1,6 @@
 # Pre-entrega 3 — Sistema de recuperación semántica local (RAG)
 
-Sistema RAG *end-to-end* en Python: recibe una pregunta, busca los fragmentos relevantes en una base vectorial local (**ChromaDB**) y genera una respuesta **basada solo en esos fragmentos**, con una cadena **LCEL asíncrona** de LangChain y salida validada con **Pydantic** (texto + referencias). Si la respuesta no está en los documentos, el sistema responde **"No lo sé"**.
+Sistema RAG *end-to-end* en Python con **Google Gemini** (LLM + embeddings, usando la capa gratuita de la API). Recibe una pregunta, busca los fragmentos relevantes en una base vectorial local (**ChromaDB**) y genera una respuesta **basada solo en esos fragmentos**, con una cadena **LCEL asíncrona** de LangChain y salida validada con **Pydantic** (texto + referencias). Si la respuesta no está en los documentos, el sistema responde **"No lo sé"**.
 
 El dataset de ejemplo (`/data`) son 4 documentos internos de **Andes Pay**, una fintech **ficticia**: política de reembolsos, guía de la API, onboarding/KYC y seguridad. Al ser ficticios, el modelo no puede responder "de memoria": todo lo que diga tiene que salir del contexto.
 
@@ -12,7 +12,7 @@ El dataset de ejemplo (`/data`) son 4 documentos internos de **Andes Pay**, una 
                  ┌──────────────── INGESTA (ingest.py) ────────────────┐
  data/*.md,txt → │ carga → chunking por tokens (500 / overlap 50)      │
                  │       → header de contexto (documento + secciones)  │
-                 │       → embeddings text-embedding-3-small           │ → ChromaDB persistente
+                 │       → embeddings gemini-embedding-001             │ → ChromaDB persistente
                  │       → IDs deterministas + manifiesto de ingesta   │   ./vectorstore (coseno)
                  └─────────────────────────────────────────────────────┘
 
@@ -20,7 +20,7 @@ El dataset de ejemplo (`/data`) son 4 documentos internos de **Andes Pay**, una 
  pregunta ────►  │ RunnableParallel ─┬─ question (passthrough)                  │
                  │                   └─ docs: embedding + similitud top-k=4     │
                  │ → prompt "filtro de veracidad" + CONTEXTO [chunk_id | fuente]│
-                 │ → ChatOpenAI (ainvoke, modo JSON)                            │
+                 │ → Gemini Flash (ainvoke, modo JSON)                          │
                  │ → PydanticOutputParser(LLMAnswer)  (+1 reintento si falla)   │
                  │ → verificación de citas contra lo recuperado                 │ → RAGResponse
                  └──────────────────────────────────────────────────────────────┘
@@ -35,7 +35,7 @@ El dataset de ejemplo (`/data`) son 4 documentos internos de **Andes Pay**, una 
 | `schemas.py` | Modelos Pydantic: `LLMAnswer` (contrato del LLM) y `RAGResponse` (salida final con referencias). |
 | `config.py` | Parámetros (modelos, chunking, top-k, rutas). Todo se puede cambiar por variables de entorno. |
 | `main.py` | Demo: corre las pruebas (preguntas en contexto + preguntas trampa) en paralelo y guarda la evidencia. |
-| `tests/` | `test_offline.py` (18 tests sin API key) y `test_integration.py` (con OpenAI real). |
+| `tests/` | `test_offline.py` (18 tests sin API key) y `test_integration.py` (con Gemini real). |
 | `data/` | Dataset de ejemplo (4 archivos `.md`). |
 | `evidencia/` | Resultados de las pruebas reales (`resultados_pruebas.json`). |
 
@@ -46,7 +46,7 @@ El dataset de ejemplo (`/data`) son 4 documentos internos de **Andes Pay**, una 
 ### 1. Entorno virtual y dependencias
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# editá .env y completá OPENAI_API_KEY=...
+# editá .env y completá GOOGLE_API_KEY=...  (gratis en https://aistudio.google.com/apikey)
 ```
 
 `.env` y `vectorstore/` están en `.gitignore`, así que no se suben al repo.
@@ -67,7 +67,7 @@ python ingest.py           # indexa (o no hace nada si la base ya está al día)
 python ingest.py --force   # fuerza la reindexación
 ```
 
-Muestra cada chunk con su cantidad de tokens y las secciones que cubre. Si lo corrés dos veces seguidas, la segunda dice `sin cambios` y no llama a la API de embeddings.
+Muestra cada chunk con su cantidad de tokens, el overlap con el anterior y las secciones que cubre. Si lo corrés dos veces seguidas, la segunda dice `sin cambios` y no llama a la API de embeddings.
 
 ### 4. Pruebas de validación (en contexto + trampa)
 
@@ -94,7 +94,7 @@ python main.py "¿Cuál es el límite de peticiones por minuto del plan Pro?"
 
 ```bash
 pytest -q                 # 18 tests offline: no necesitan API key ni red
-pytest -q -m integration  # 2 tests contra OpenAI real (requieren OPENAI_API_KEY)
+pytest -q -m integration  # 2 tests contra Gemini real (requieren GOOGLE_API_KEY)
 ```
 
 ### Uso desde código
@@ -129,10 +129,11 @@ Forma de la salida (`RAGResponse`):
 ## Decisiones de diseño (por criterio de evaluación)
 
 ### 1. Chunking e ingesta
-- **Tamaño medido en tokens, no en caracteres**: `RecursiveCharacterTextSplitter` con `length_function` basada en `tiktoken` (`cl100k_base`), `chunk_size=500`, `chunk_overlap=50`.
-- **Cortes que respetan la estructura**: la unidad mínima es la línea (párrafo, ítem de lista, fila de tabla, título). Solo si una línea supera el tamaño baja a oraciones y palabras. El overlap arrastra **líneas completas** del chunk anterior (hasta ~50 tokens), no medias palabras.
+- **Tamaño medido en tokens, no en caracteres**: chunks de hasta **500 tokens** con **50 tokens de overlap**, contados con `tiktoken` (`cl100k_base`).
+- **Cortes que respetan la estructura**: `RecursiveCharacterTextSplitter` corta por líneas (párrafo, ítem de lista, fila de tabla, título) y solo baja a oraciones y palabras si una línea es muy larga.
+- **Overlap garantizado**: el splitter de LangChain solo arrastra líneas enteras que entren en el overlap, y cuando la última línea de un chunk es larga, el siguiente se queda sin overlap. Por eso el overlap se arma aparte: a cada chunk se le anteponen los ~50 tokens anteriores del texto original (empezando siempre en una palabra completa). Así cada chunk mide como máximo 450 tokens nuevos + 50 de overlap = 500. El overlap real de cada chunk queda en el metadato `overlap_tokens`, y hay un test que lo verifica.
 - **Header de contexto en cada chunk**: se antepone `Documento: <título> | Secciones: <secciones que cubre>`. Así un fragmento que arranca a mitad de una tabla sigue "sabiendo" de qué trata, y el embedding lo refleja.
-- **Metadatos**: `source`, `title`, `section`, `chunk_id`, `chunk_index`, `start_index`, `n_tokens`.
+- **Metadatos**: `source`, `title`, `section`, `chunk_id`, `chunk_index`, `start_index`, `n_tokens`, `overlap_tokens`.
 - **Persistencia inteligente**: `ingest()` calcula un hash de los archivos + parámetros de chunking + modelo de embeddings y lo guarda en `vectorstore/ingest_manifest.json`. Si coincide y la colección tiene los chunks esperados, **no reindexa** (ahorra tiempo y costo). Si cambian los datos, recrea la colección; los IDs deterministas evitan duplicados.
 
 ### 2. Arquitectura asíncrona y recuperación
@@ -143,7 +144,7 @@ Forma de la salida (`RAGResponse`):
 - Colección configurada con **similitud coseno** (`hnsw:space = cosine`).
 
 ### 3. Validación con Pydantic
-- `PydanticOutputParser(LLMAnswer)` con sus `format_instructions` inyectadas en el prompt; el LLM corre en **modo JSON** y la generación tiene **un reintento** si el parseo falla.
+- `PydanticOutputParser(LLMAnswer)` con sus `format_instructions` inyectadas en el prompt (que exige devolver solo JSON), el **modo JSON nativo** del modelo activado (`response_mime_type="application/json"` en Gemini) y **un reintento** si el parseo falla.
 - `LLMAnswer` normaliza: si `found_in_context=false`, la respuesta pasa a ser exactamente "No lo sé…" y se vacían las citas.
 - `RAGResponse` exige coherencia: una respuesta encontrada **debe** tener referencias, y un "No lo sé" **no puede** tenerlas.
 - Las referencias (archivo, chunk, sección, score, extracto) se construyen a partir de los fragmentos **realmente recuperados**, no de lo que el LLM dice.
@@ -156,6 +157,20 @@ Forma de la salida (`RAGResponse`):
 
 ---
 
+## Proveedores
+
+| Pieza | Por defecto | Alternativas (variables en `.env`) |
+|---|---|---|
+| LLM | Gemini `gemini-flash-latest` (`GOOGLE_API_KEY`, capa gratuita) | `LLM_PROVIDER=openai` · `LLM_PROVIDER=anthropic` (Claude) · `LLM_PROVIDER=ollama` (local) |
+| Embeddings | Gemini `gemini-embedding-001` | `EMBEDDING_PROVIDER=openai` → `text-embedding-3-small` · `EMBEDDING_PROVIDER=huggingface` → `intfloat/multilingual-e5-small` (local) |
+
+- Se eligió Gemini porque su API tiene una capa gratuita que alcanza para este proyecto, y una sola clave sirve para generar texto y embeddings.
+- `gemini-flash-latest` es un alias que apunta siempre al modelo Flash más reciente. Si querés fijar una versión, poné `LLM_MODEL=<id del modelo>`.
+- Los embeddings de Gemini usan `task_type=RETRIEVAL_DOCUMENT` al indexar y `RETRIEVAL_QUERY` al consultar (es el mismo modelo, optimizado para cada lado de la búsqueda).
+- Los modelos Gemini recientes no aceptan `temperature`, así que con Gemini no se envía. Para otros proveedores se usa `0`.
+- Las alternativas necesitan sus paquetes opcionales (ver el final de `requirements.txt`). Cambiar de proveedor no requiere tocar código.
+- La capa gratuita tiene límites por minuto y por día. Si aparece un error `429 RESOURCE_EXHAUSTED`, esperá un minuto y volvé a correr.
+
 ## Notas
-- Cambiar de proveedor o modelo: editar `get_embeddings()` / `get_llm()` en `config.py` o las variables `LLM_MODEL` / `EMBEDDING_MODEL`. Si cambiás el modelo de embeddings, corré `python ingest.py --force`.
-- Los conteos de tokens dependen de `tiktoken`, que descarga su vocabulario la primera vez (necesita internet). Si no puede, usa una aproximación (1 token ≈ 4 caracteres) y avisa con un warning.
+- Si cambiás el modelo o el proveedor de embeddings, corré `python ingest.py --force`. Si no lo hacés, el sistema lo detecta y se niega a consultar (para no mezclar espacios vectoriales).
+- `chunk_size` se mide con `tiktoken` (`cl100k_base`) como unidad estándar de tokens. Ese tokenizer descarga su vocabulario la primera vez (necesita internet); si no puede, usa una aproximación (1 token ≈ 4 caracteres) y avisa con un warning.

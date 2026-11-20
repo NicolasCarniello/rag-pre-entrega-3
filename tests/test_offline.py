@@ -100,17 +100,20 @@ def test_chunking_respeta_tamano_y_metadatos():
 
 
 def test_chunks_consecutivos_se_solapan():
+    docs = {d.metadata["source"]: d.page_content for d in load_documents()}
     chunks = split_documents(load_documents())
     pairs = [(a, b) for a, b in zip(chunks, chunks[1:]) if a.metadata["source"] == b.metadata["source"]]
-    overlaps = []
+    assert pairs
     for a, b in pairs:
         a_body = a.page_content.split("\n\n", 1)[1]
+        b_body = b.page_content.split("\n\n", 1)[1]
         a_end = a.metadata["start_index"] + len(a_body)
-        assert b.metadata["start_index"] > a.metadata["start_index"]
-        overlap_chars = max(0, a_end - b.metadata["start_index"])
-        overlaps.append(count_tokens(a_body[len(a_body) - overlap_chars:]) if overlap_chars else 0)
-    assert all(o > 0 for o in overlaps), f"hay chunks sin overlap: {overlaps}"
-    assert max(overlaps) <= config.CHUNK_OVERLAP + 5
+        # el chunk siguiente arranca dentro del anterior (comparten texto)...
+        assert a.metadata["start_index"] < b.metadata["start_index"] < a_end
+        shared = docs[a.metadata["source"]][b.metadata["start_index"]:a_end]
+        assert a_body.endswith(shared.strip()) and b_body.startswith(shared.strip())
+        # ...y el overlap es de hasta CHUNK_OVERLAP tokens, nunca cero
+        assert 0 < b.metadata["overlap_tokens"] <= config.CHUNK_OVERLAP
 
 
 def test_ingesta_no_reindexa_si_la_base_existe(embeddings, data_dir, persist_dir):

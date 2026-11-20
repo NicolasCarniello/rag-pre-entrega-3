@@ -1,12 +1,18 @@
 langchain>=1.0
 langchain-core>=1.0
-langchain-openai>=1.0
+langchain-google-genai>=4.0
 langchain-chroma>=1.0
 langchain-text-splitters>=1.0
 chromadb>=1.0
-openai>=1.0
 pydantic>=2.7
 python-dotenv>=1.0
 tiktoken>=0.7
 pytest>=8.0
 pytest-asyncio>=0.24
+
+# --- Opcionales (solo si cambiás de proveedor en .env) ---
+# OpenAI:             pip install langchain-openai openai
+# Claude:             pip install langchain-anthropic
+# Ollama local:       pip install langchain-ollama
+# Embeddings locales: pip install torch --index-url https://download.pytorch.org/whl/cpu
+#                     pip install langchain-huggingface sentence-transformers

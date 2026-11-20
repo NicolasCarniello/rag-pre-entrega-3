@@ -1,18 +1,24 @@
-"""Tests de integración con OpenAI real (se saltean si no hay OPENAI_API_KEY).
+"""Tests de integración con el LLM real (se saltean si falta la API key del proveedor).
 
     pytest -q -m integration
 """
-
-import os
 
 import pytest
 
 import config
 from rag_chain import get_rag_response
 
+def _sin_clave() -> bool:
+    try:
+        config.require_api_key()
+        return False
+    except RuntimeError:
+        return True
+
+
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="requiere OPENAI_API_KEY"),
+    pytest.mark.skipif(_sin_clave(), reason="requiere la API key del proveedor (.env)"),
 ]
 
 

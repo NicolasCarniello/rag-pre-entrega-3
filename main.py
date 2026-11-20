@@ -86,8 +86,8 @@ async def run_tests() -> int:
         json.dumps(
             {
                 "fecha": datetime.now().isoformat(timespec="seconds"),
-                "llm": config.LLM_MODEL,
-                "embeddings": config.EMBEDDING_MODEL,
+                "llm": f"{config.LLM_PROVIDER}:{config.LLM_MODEL}",
+                "embeddings": f"{config.EMBEDDING_PROVIDER}:{config.EMBEDDING_MODEL}",
                 "top_k": config.TOP_K,
                 "chunk_size": config.CHUNK_SIZE,
                 "chunk_overlap": config.CHUNK_OVERLAP,

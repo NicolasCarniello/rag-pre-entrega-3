@@ -5,11 +5,12 @@ Uso:
     python ingest.py --force    # fuerza la reindexación completa
 
 Estrategia de chunking:
-1. RecursiveCharacterTextSplitter medido en TOKENS (tiktoken, cl100k_base):
-   chunk_size=500, chunk_overlap=50.
-2. Separadores conscientes de Markdown: primero corta por secciones (##, ###),
-   después por párrafos, líneas, oraciones y palabras. Así cada fragmento
-   tiende a contener una sección completa en lugar de cortar ideas al medio.
+1. Tamaño medido en TOKENS (tiktoken, cl100k_base): chunks de hasta 500 tokens
+   con 50 tokens de overlap (CHUNK_SIZE / CHUNK_OVERLAP en config.py).
+2. RecursiveCharacterTextSplitter corta por líneas (párrafos, ítems, filas de
+   tabla, títulos) y solo baja a oraciones/palabras si una línea es muy larga.
+   A cada parte se le antepone el final del texto anterior (~50 tokens, desde
+   el inicio de una palabra), así el overlap está garantizado en todos los chunks.
 3. "Contextual chunk header": a cada fragmento se le antepone el título del
    documento y la sección a la que pertenece, para que el embedding conserve
    el contexto aunque el fragmento quede separado del resto del archivo.
@@ -38,6 +39,8 @@ import config
 logger = logging.getLogger("rag.ingest")
 
 MANIFEST_NAME = "ingest_manifest.json"
+# Subir este número si cambia el algoritmo de chunking: fuerza la reindexación.
+CHUNKING_VERSION = 2
 HEADER_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.MULTILINE)
 
 
@@ -97,18 +100,37 @@ def load_documents(data_dir: Path = config.DATA_DIR) -> list[Document]:
 
 
 def build_splitter() -> RecursiveCharacterTextSplitter:
+    """Splitter de la parte "nueva" de cada chunk.
+
+    Cada chunk final = overlap (hasta CHUNK_OVERLAP tokens del texto anterior)
+    + parte nueva (hasta CHUNK_SIZE - CHUNK_OVERLAP tokens), así nunca supera
+    CHUNK_SIZE. El overlap se agrega en `_overlap_start` y no depende del
+    splitter: el de LangChain solo arrastra líneas enteras que entren en el
+    overlap, y si la última línea es más larga, el chunk se queda sin overlap.
+    """
     return RecursiveCharacterTextSplitter(
-        chunk_size=config.CHUNK_SIZE,
-        chunk_overlap=config.CHUNK_OVERLAP,
+        chunk_size=config.CHUNK_SIZE - config.CHUNK_OVERLAP,
+        chunk_overlap=0,
         length_function=count_tokens,  # tamaño medido en tokens
         # Unidad mínima = línea (párrafo, ítem de lista, fila de tabla o título),
-        # así nunca se corta una idea al medio y el overlap de 50 tokens arrastra
-        # las últimas líneas completas del chunk anterior. Solo si una línea
-        # supera el tamaño se baja a oraciones y palabras.
+        # así los cortes no parten una idea al medio. Solo si una línea supera
+        # el tamaño se baja a oraciones y palabras.
         separators=["\n", ". ", " ", ""],
         keep_separator="end",
         strip_whitespace=True,
     )
+
+
+def _overlap_start(text: str, start: int, max_tokens: int = config.CHUNK_OVERLAP) -> int:
+    """Posición desde la que arrancar para incluir hasta `max_tokens` tokens del
+    texto anterior a `start`, cortando siempre en el inicio de una palabra."""
+    words = list(re.finditer(r"\S+\s*", text[:start]))
+    begin = start
+    for word in reversed(words):
+        if count_tokens(text[word.start():start]) > max_tokens:
+            break
+        begin = word.start()
+    return begin
 
 
 def _sections_for(text: str, start: int, end: int) -> list[str]:
@@ -137,13 +159,16 @@ def split_documents(docs: list[Document]) -> list[Document]:
         pieces = splitter.split_documents([doc])
         search_from = 0
         for i, piece in enumerate(pieces):
-            # Posición del chunk en el texto original (cada chunk empieza después
-            # que el anterior, aunque se solapen).
-            start = doc.page_content.find(piece.page_content, search_from)
-            if start == -1:
-                start = search_from
-            search_from = start + 1
-            sections = _sections_for(doc.page_content, start, start + len(piece.page_content))
+            # Posición de la parte nueva en el texto original.
+            new_start = doc.page_content.find(piece.page_content, search_from)
+            if new_start == -1:
+                new_start = search_from
+            end = new_start + len(piece.page_content)
+            search_from = end
+            # Overlap: se antepone el final del texto anterior (≈50 tokens).
+            start = _overlap_start(doc.page_content, new_start) if i > 0 else new_start
+            body = doc.page_content[start:end].strip()
+            sections = _sections_for(doc.page_content, start, end)
             section = " / ".join(sections)
             header = f"Documento: {doc.metadata['title']}"
             if section:
@@ -151,7 +176,7 @@ def split_documents(docs: list[Document]) -> list[Document]:
             chunk_id = f"{stem}::chunk-{i:02d}"
             chunks.append(
                 Document(
-                    page_content=f"{header}\n\n{piece.page_content}",
+                    page_content=f"{header}\n\n{body}",
                     metadata={
                         "source": doc.metadata["source"],
                         "title": doc.metadata["title"],
@@ -159,7 +184,8 @@ def split_documents(docs: list[Document]) -> list[Document]:
                         "chunk_id": chunk_id,
                         "chunk_index": i,
                         "start_index": start,
-                        "n_tokens": count_tokens(piece.page_content),
+                        "n_tokens": count_tokens(body),
+                        "overlap_tokens": count_tokens(doc.page_content[start:new_start]) if start < new_start else 0,
                     },
                     id=chunk_id,
                 )
@@ -183,7 +209,7 @@ def _fingerprint(docs: list[Document], embedding_model: str) -> str:
     for d in docs:
         h.update(d.metadata["source"].encode())
         h.update(d.page_content.encode())
-    h.update(f"{config.CHUNK_SIZE}|{config.CHUNK_OVERLAP}|{embedding_model}".encode())
+    h.update(f"v{CHUNKING_VERSION}|{config.CHUNK_SIZE}|{config.CHUNK_OVERLAP}|{embedding_model}".encode())
     return h.hexdigest()
 
 
@@ -282,7 +308,7 @@ def main() -> None:
     result = ingest(force=args.force)
     for chunk in split_documents(load_documents()):
         m = chunk.metadata
-        print(f"  {m['chunk_id']:<40} {m['n_tokens']:>4} tokens | {m['section'] or '(intro)'}")
+        print(f"  {m['chunk_id']:<40} {m['n_tokens']:>4} tok (overlap {m['overlap_tokens']:>2}) | {m['section'] or '(intro)'}")
     print(f"\nTotal: {result.n_chunks} chunks en '{config.PERSIST_DIR}'"
           f" ({'reindexado' if result.reindexed else 'sin cambios'}).")
 

@@ -166,7 +166,7 @@ class RAGPipeline:
 
 
 # ---------------------------------------------------------------------------
-# Pipeline por defecto (OpenAI) + función pedida por la consigna
+# Pipeline por defecto (según config) + función pedida por la consigna
 # ---------------------------------------------------------------------------
 _default_pipeline: RAGPipeline | None = None
 _pipeline_lock = asyncio.Lock()
